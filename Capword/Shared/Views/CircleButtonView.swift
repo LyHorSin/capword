@@ -17,12 +17,22 @@ struct CircleButtonView: View {
             Vibration.fire(.impact(.soft))
             action()
         }) {
-            Image(systemName: systemNameIcon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(AppTheme.primary)
-                .frame(width: 32, height: 32)
-                .background(Color.white)
-                .cornerRadius(16)
+            CircleButtonLabel(systemNameIcon: systemNameIcon)
         }
+    }
+}
+
+
+struct CircleButtonLabel: View {
+    var systemNameIcon: String
+
+    var body: some View {
+        Image(systemName: systemNameIcon)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundColor(AppTheme.primary)
+            .frame(width: 32, height: 32)
+            .background(Color.white)
+            .clipShape(Circle())
+            .contentShape(Circle())
     }
 }

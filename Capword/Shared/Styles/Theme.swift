@@ -26,6 +26,9 @@ enum AppTheme {
     // Primary text
     static let primary = Color(hex: 0x222222) // deep navy/ink
     static let secondary = Color(hex: 0x767676) // muted gray
+    
+    static let tertiary = Color(hex: 0xEAC9AB)
+    static let onTertiary = Color(hex: 0xF6F2ED)
 
     // Accent / brand
     static let accent = Color(hex: 0xF7B500) // warm mustard/yellow
@@ -111,6 +114,17 @@ enum AppTheme {
                 .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 4)
         }
     }
+    
+    struct PrimiumCardStyle: ViewModifier {
+        func body(content: Content) -> some View {
+            content
+                .padding(.horizontal, AppTheme.Constants.horizontalPadding)
+                .padding(.vertical, AppTheme.Constants.verticalPadding)
+                .background(AppTheme.tertiary)
+                .cornerRadius(AppTheme.Constants.cornerRadius)
+                .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 4)
+        }
+    }
 
     // Accent pill style
     struct AccentPill: ViewModifier {
@@ -136,6 +150,10 @@ enum AppTheme {
 extension View {
     func appCardStyle() -> some View {
         modifier(AppTheme.CardStyle())
+    }
+    
+    func appPremiumCardStyle() -> some View {
+        modifier(AppTheme.PrimiumCardStyle())
     }
 
     func accentPillStyle() -> some View {

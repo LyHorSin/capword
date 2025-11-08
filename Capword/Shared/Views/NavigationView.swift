@@ -67,8 +67,8 @@ public struct GlassNavigationBar<Leading: View, Title: View, Trailing: View>: Vi
 		self.hideBackButtonStored = hideBackButton
 		self.backActionStored = backAction
 		self.title = Text(titleText)
-			.font(.system(size: 17, weight: .semibold, design: .default))
-			.foregroundColor(.primary)
+            .font(AppTheme.TextStyles.title())
+            .foregroundColor(AppTheme.primary)
 		self.trailing = trailing()
 	}
 
@@ -93,6 +93,7 @@ public struct GlassNavigationBar<Leading: View, Title: View, Trailing: View>: Vi
 						// Build the default back button here so we can use `dismiss` safely
                         
                         CircleButtonView(systemNameIcon: "chevron.left") {
+                            backActionStored?()
                         }
 						.accessibilityLabel("Back")
 					}
