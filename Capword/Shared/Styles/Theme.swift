@@ -33,10 +33,10 @@ enum AppTheme {
 
     // Pastel ring colors (used for the circular ring)
     static let pastelBlue = Color(hex: 0xB8E1FF)
-    static let pastelPurple = Color(hex: 0xFEC6EB)
-    static let pastelPink = Color(hex: 0xEBF51A)
+    static let pastelPurple = Color(hex: 0xB4B1E8)
+    static let pastelPink = Color(hex: 0xFFC7EC)
     static let pastelGreen = Color(hex: 0x9ADBB9)
-    static let pastelYellow = Color(hex: 0xB4B1E8)
+    static let pastelYellow = Color(hex: 0xEBF51A)
 
     // Constants for spacing, font family names and sizes
     struct Constants {

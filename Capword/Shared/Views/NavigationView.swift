@@ -78,6 +78,11 @@ public struct GlassNavigationBar<Leading: View, Title: View, Trailing: View>: Vi
             AppTheme.background
 				.edgesIgnoringSafeArea(.all)
 			
+            Rectangle()
+                .fill(AppTheme.pastelYellow)
+                .frame(width: 120, height: topSafeArea, alignment: .top)
+                .cornerRadius(10)
+                .offset(y: -topSafeArea)
 
 			HStack {
 				// Leading region - fixed width to avoid shifting title

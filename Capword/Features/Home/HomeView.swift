@@ -10,6 +10,9 @@ struct HomeView: View {
     @State private var scrollOffset: CGFloat = 0     // signed
     @State private var baselineY: CGFloat? = nil     // first sentinel Y
     @State private var isVibration: Bool = false
+    @State private var showHeader: Bool = false
+    @State private var showCircle: Bool = false
+    @State private var showDailyProgress: Bool = false
 
     // Split directions for easy use
     private var upOffset: CGFloat { max(0, scrollOffset) }      // scrolling up
@@ -47,19 +50,33 @@ struct HomeView: View {
                     } content: {
                         VStack(spacing: 24) {
                             HeaderView()
+                                .opacity(showHeader ? 1 : 0)
+                                .offset(y: showHeader ? 0 : 30)
+                                .animation(.easeOut(duration: 0.5), value: showHeader)
 
                             CircleProgressView()
                                 .frame(maxWidth: .infinity)
                                 .aspectRatio(1, contentMode: .fit)
                                 .scaleEffect(circleScale, anchor: .center)
                                 .offset(y: circleParallaxY) // only moves when pulling down
+                                .opacity(showCircle ? 1 : 0)
+                                .offset(y: showCircle ? circleParallaxY : circleParallaxY + 30)
                                 .animation(.spring(response: 0.3, dampingFraction: 0.8), value: circleScale)
+                                .animation(.easeOut(duration: 0.5).delay(0.15), value: showCircle)
                                 .animation(.easeOut(duration: 0.2), value: circleParallaxY)
 
                             DailyProgressCardView()
+                                .opacity(showDailyProgress ? 1 : 0)
+                                .offset(y: showDailyProgress ? 0 : 30)
+                                .animation(.easeOut(duration: 0.5).delay(0.3), value: showDailyProgress)
                         }
                         .frame(minHeight: geo.size.height-geo.safeAreaInsets.bottom)
                         .paddingContent()
+                        .onAppear {
+                            showHeader = true
+                            showCircle = true
+                            showDailyProgress = true
+                        }
                     }
 
                     GlassNavigationBar("",
@@ -73,4 +90,8 @@ struct HomeView: View {
             }
         }
     }
+}
+
+#Preview {
+    HomeView()
 }

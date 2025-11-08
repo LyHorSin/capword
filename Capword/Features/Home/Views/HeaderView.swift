@@ -11,7 +11,7 @@ struct HeaderView: View {
     var body: some View {
         VStack(spacing: 8) {
             Text("Nov 08")
-                .font(.subheadline)
+                .font(AppTheme.TextStyles.caption())
                 .foregroundColor(AppTheme.secondary)
             
             Text("Good Morning")

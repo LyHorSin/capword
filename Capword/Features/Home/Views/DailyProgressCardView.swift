@@ -17,10 +17,11 @@ struct DailyProgressCardView: View {
             
             VStack(alignment: .leading, spacing: 6) {
                 Text("Nov 08")
-                    .font(.title2)
+                    .font(AppTheme.TextStyles.subtitle())
                     .foregroundColor(AppTheme.primary)
                 
                 Text("Can you snap 5 words today?")
+                    .font(AppTheme.TextStyles.caption())
                     .foregroundColor(AppTheme.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
