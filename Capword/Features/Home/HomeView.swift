@@ -13,7 +13,8 @@ struct HomeView: View {
     @State private var showHeader: Bool = false
     @State private var showCircle: Bool = false
     @State private var showDailyProgress: Bool = false
-    @State private var goToProfile: Bool = false
+    @State private var showCamera: Bool = false
+    @StateObject private var cameraManager = CameraManager()
 
     // Split directions for easy use
     private var upOffset: CGFloat { max(0, scrollOffset) }      // scrolling up
@@ -71,6 +72,10 @@ struct HomeView: View {
                                     .opacity(showDailyProgress ? 1 : 0)
                                     .offset(y: showDailyProgress ? 0 : 30)
                                     .animation(.easeOut(duration: 0.5).delay(0.3), value: showDailyProgress)
+                                    .onTapGesture {
+                                        Vibration.fire(.impact(.medium))
+                                        showCamera = true
+                                    }
                             }
                             .frame(minHeight: geo.size.height-geo.safeAreaInsets.bottom)
                             .paddingContent()
@@ -95,6 +100,9 @@ struct HomeView: View {
                     }
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraView(cameraManager: cameraManager)
             }
         }
     }
