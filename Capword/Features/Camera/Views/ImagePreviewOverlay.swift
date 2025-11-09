@@ -19,6 +19,7 @@ struct ImagePreviewOverlay: View {
     @State private var stickerImage: UIImage?
     @State private var isExtracting = false
     @State private var stickerPath: Path?
+    @State private var stickerPoints: [CGPoint]? // normalized points (0..1) around contour
     
     var body: some View {
         ZStack {
@@ -42,7 +43,7 @@ struct ImagePreviewOverlay: View {
                                     .antialiased(true)
                                     .scaledToFit()
                                     .frame(width: geo.size.width * 0.92)
-                                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 8)
+                                    .shadow(color: .black.opacity(0.32), radius: 18, x: 0, y: 8)
                                     .accessibilityIdentifier("stickerImage")
                             } else {
                                 Image(uiImage: image)
@@ -134,29 +135,30 @@ struct ImagePreviewOverlay: View {
                 }
                 return
             }
-
+            
             // Fallback to Vision framework
-            if let (lifted, path) = self.maskWithVision(image) {
+            if let (lifted, path, points) = await self.maskWithVision(image) {
                 await MainActor.run {
                     self.stickerImage = lifted
                     self.stickerPath = path
+                    self.stickerPoints = points
                     self.isExtracting = false
                 }
                 return
             }
-
+            
             await MainActor.run { self.isExtracting = false }
         }
     }
-
+    
     private func liftWithVisionKit(_ uiImage: UIImage) async -> UIImage? {
         // VisionKit subject lifting is complex and not always available
         // Skip it and use Vision framework directly for reliable results
         return nil
     }
-
+    
     // Fallback for iOS 16 or when VisionKit isn't supported
-    private func maskWithVision(_ image: UIImage) -> (UIImage, Path)? {
+    private func maskWithVision(_ image: UIImage) -> (UIImage, Path, [CGPoint])? {
         guard let cgImage = image.cgImage else { return nil }
         let request = VNGenerateForegroundInstanceMaskRequest()
         let orientation = CGImagePropertyOrientation(uiOrientation: image.imageOrientation)
@@ -167,28 +169,43 @@ struct ImagePreviewOverlay: View {
             // Generate mask for all instances
             guard let maskBuffer = try? obs.generateScaledMaskForImage(forInstances: obs.allInstances, from: handler) else { return nil }
             
-            // Extract contour path from the mask
-            let path = extractContourPath(from: maskBuffer, imageSize: image.size)
+            // Extract contour path and points from the mask
+            let (path, points) = extractContourPath(from: maskBuffer, imageSize: image.size)
             
             guard let resultImage = compositeWithMask(image: image, mask: maskBuffer) else { return nil }
-            return (resultImage, path)
+            return (resultImage, path, points)
         } catch { return nil }
     }
     
     // Extract contour path from mask for animation
-    private func extractContourPath(from mask: CVPixelBuffer, imageSize: CGSize) -> Path {
+    private func extractContourPath(from mask: CVPixelBuffer, imageSize: CGSize) -> (Path, [CGPoint]) {
         CVPixelBufferLockBaseAddress(mask, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
         
         let width = CVPixelBufferGetWidth(mask)
         let height = CVPixelBufferGetHeight(mask)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(mask)
-        guard let baseAddress = CVPixelBufferGetBaseAddress(mask) else {
-            print("❌ No base address for mask")
-            return Path()
+        // Try to handle both contiguous and planar pixel buffers. Some pixel buffers
+        // may not expose a base address directly (nil) but will have plane base addresses.
+        var bytesPerRow = CVPixelBufferGetBytesPerRow(mask)
+        var baseAddress = CVPixelBufferGetBaseAddress(mask)
+        
+        if baseAddress == nil {
+            let planes = CVPixelBufferGetPlaneCount(mask)
+            print("⚠️ mask has no base address; planeCount=\(planes)")
+            if planes > 0 {
+                baseAddress = CVPixelBufferGetBaseAddressOfPlane(mask, 0)
+                bytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(mask, 0)
+            }
         }
         
-        let buffer = baseAddress.assumingMemoryBound(to: UInt8.self)
+        guard let base = baseAddress else {
+            // Diagnostic: print pixel format for debugging
+            let fmt = CVPixelBufferGetPixelFormatType(mask)
+            print("❌ No base address for mask (pixelFormat=\(fmt))")
+            return (Path(), [])
+        }
+        
+        let buffer = base.assumingMemoryBound(to: UInt8.self)
         var edgePoints: [CGPoint] = []
         
         // Sample edge pixels with a reasonable step for performance
@@ -199,11 +216,11 @@ struct ImagePreviewOverlay: View {
                 let offset = y * bytesPerRow + x
                 if offset < bytesPerRow * height && buffer[offset] > 128 {
                     // Check if this pixel is on the edge
-                    let hasTransparentNeighbor = 
-                        (x == 0 || buffer[y * bytesPerRow + max(0, x - step)] <= 128) ||
-                        (x >= width - step || buffer[y * bytesPerRow + min(width - 1, x + step)] <= 128) ||
-                        (y == 0 || buffer[max(0, y - step) * bytesPerRow + x] <= 128) ||
-                        (y >= height - step || buffer[min(height - 1, y + step) * bytesPerRow + x] <= 128)
+                    let hasTransparentNeighbor =
+                    (x == 0 || buffer[y * bytesPerRow + max(0, x - step)] <= 128) ||
+                    (x >= width - step || buffer[y * bytesPerRow + min(width - 1, x + step)] <= 128) ||
+                    (y == 0 || buffer[max(0, y - step) * bytesPerRow + x] <= 128) ||
+                    (y >= height - step || buffer[min(height - 1, y + step) * bytesPerRow + x] <= 128)
                     
                     if hasTransparentNeighbor {
                         let normalizedX = CGFloat(x) / CGFloat(width)
@@ -216,9 +233,9 @@ struct ImagePreviewOverlay: View {
         
         print("📍 Found \(edgePoints.count) edge points")
         
-        guard !edgePoints.isEmpty else { 
+        guard !edgePoints.isEmpty else {
             print("❌ No edge points found")
-            return Path() 
+            return (Path(), [])
         }
         
         // Sort points by angle from center to create a smooth contour
@@ -242,9 +259,9 @@ struct ImagePreviewOverlay: View {
             print("✅ Created path with \(sortedPoints.count) points")
         }
         
-        return path
+        return (path, sortedPoints)
     }
-
+    
     // Same composite helper you used (preserves color, removes background)
     fileprivate func compositeWithMask(image: UIImage, mask: CVPixelBuffer) -> UIImage? {
         // Create a CIImage from the UIImage and apply its orientation so the CI pipeline
@@ -256,7 +273,7 @@ struct ImagePreviewOverlay: View {
         // Apply orientation to the input so `extent` and pixel coordinates match what
         // Vision produced when we asked with the same orientation earlier.
         let orientedInput = input.oriented(forExifOrientation: Int32(imgOrientation.rawValue))
-
+        
         var maskCI = CIImage(cvPixelBuffer: mask)
         // If the mask and the input sizes differ, scale the mask into the oriented input space
         if maskCI.extent.size != orientedInput.extent.size {
@@ -264,20 +281,20 @@ struct ImagePreviewOverlay: View {
             let sy = orientedInput.extent.height / max(maskCI.extent.height, 1)
             maskCI = maskCI.transformed(by: .init(scaleX: sx, y: sy))
         }
-
+        
         let clearBG = CIImage(color: .clear).cropped(to: orientedInput.extent)
         let composed = orientedInput.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: clearBG,
             kCIInputMaskImageKey: maskCI
         ])
-
+        
         // Reuse a shared CIContext to avoid repeated heavy context creation
         let ctx = ImageProcessing.sharedCIContext
         guard let out = ctx.createCGImage(composed, from: orientedInput.extent) else { return nil }
         // `out` is already rendered in the correct (upright) orientation. Return as `.up`.
         return UIImage(cgImage: out, scale: image.scale, orientation: .up)
     }
-
+    
     // Your existing 200×200 renderer is fine
     fileprivate func renderToSquare(_ image: UIImage, side: CGFloat) -> UIImage {
         let canvas = CGSize(width: side, height: side)
@@ -291,19 +308,78 @@ struct ImagePreviewOverlay: View {
             image.draw(in: CGRect(origin: origin, size: drawSize))
         }
     }
+
+    /// Render a new `UIImage` clipped to `path` with an optional border drawn on top.
+    /// - Parameters:
+    ///   - image: source image to draw
+    ///   - size: target output size in points
+    ///   - path: a `UIBezierPath` describing the shape (in output coordinates)
+    ///   - borderColor: color for the border stroke
+    ///   - borderWidth: stroke width in points
+    ///   - contentMode: how the image is placed into the shape (defaults to scaleAspectFill)
+    fileprivate func renderShapedImage(_ image: UIImage,
+                                      size: CGSize,
+                                      path: UIBezierPath,
+                                      borderColor: UIColor = .white,
+                                      borderWidth: CGFloat = 3,
+                                      contentMode: UIView.ContentMode = .scaleAspectFill) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = false
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { ctx in
+            let rect = CGRect(origin: .zero, size: size)
+
+            // Save context state
+            ctx.cgContext.saveGState()
+
+            // Clip to the provided path
+            path.addClip()
+
+            // Compute image drawing rect based on contentMode
+            let imgRect: CGRect = {
+                switch contentMode {
+                case .scaleAspectFill:
+                    let i = image.size
+                    let s = max(rect.width / max(1, i.width), rect.height / max(1, i.height))
+                    let w = i.width * s, h = i.height * s
+                    return CGRect(x: rect.midX - w/2, y: rect.midY - h/2, width: w, height: h)
+                case .scaleAspectFit:
+                    let i = image.size
+                    let s = min(rect.width / max(1, i.width), rect.height / max(1, i.height))
+                    let w = i.width * s, h = i.height * s
+                    return CGRect(x: rect.midX - w/2, y: rect.midY - h/2, width: w, height: h)
+                default:
+                    return rect
+                }
+            }()
+
+            // Draw image into clipped area
+            image.draw(in: imgRect)
+
+            // Restore before stroking (stroke should not be clipped by fill)
+            ctx.cgContext.restoreGState()
+
+            // Stroke the path on top
+            borderColor.setStroke()
+            path.lineWidth = borderWidth
+            path.stroke()
+        }
+    }
 }
 
-// Small helper for image processing shared resources
-fileprivate enum ImageProcessing {
+enum ImageProcessing {
     static let sharedCIContext: CIContext = {
-        // Reuse CIContext to avoid repeated allocation overhead
-        let options: [CIContextOption: Any] = [:]
-        return CIContext(options: options)
+        let opts: [CIContextOption: Any] = [
+            .useSoftwareRenderer: false,
+            .cacheIntermediates: true
+        ]
+        return CIContext(options: opts)
     }()
 }
 
-// MARK: - Orientation Mapping
-private extension CGImagePropertyOrientation {
+extension CGImagePropertyOrientation {
     init(uiOrientation: UIImage.Orientation) {
         switch uiOrientation {
         case .up: self = .up
@@ -318,3 +394,4 @@ private extension CGImagePropertyOrientation {
         }
     }
 }
+
