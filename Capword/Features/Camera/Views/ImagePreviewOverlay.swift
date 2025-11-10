@@ -63,7 +63,7 @@ struct ImagePreviewOverlay: View {
                 
                 Spacer()
                 
-                HStack(spacing: 80) {
+                HStack(alignment: .center, spacing: 80) {
                     Button(action: {
                         Vibration.fire(.impact(.soft))
                         onRetake()
@@ -106,6 +106,7 @@ struct ImagePreviewOverlay: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
             .paddingContent()
         }
