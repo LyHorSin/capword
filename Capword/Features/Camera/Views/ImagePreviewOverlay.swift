@@ -21,6 +21,11 @@ struct ImagePreviewOverlay: View {
     @State private var stickerPath: Path?
     @State private var stickerPoints: [CGPoint]? // normalized points (0..1) around contour
     
+    // Object detection and translation
+    @State private var detectedObject: String?
+    @State private var translations: [String: String] = [:]
+    @State private var isDetecting = false
+    
     var body: some View {
         ZStack {
             AppTheme.background.ignoresSafeArea()
@@ -37,14 +42,56 @@ struct ImagePreviewOverlay: View {
                         Spacer(minLength: 0)
                         Group {
                             if let stickerImage = stickerImage {
-                                Image(uiImage: stickerImage)
-                                    .resizable()
-                                    .interpolation(.high)
-                                    .antialiased(true)
-                                    .scaledToFit()
-                                    .frame(width: geo.size.width * 0.92)
-                                    .shadow(color: .black.opacity(0.32), radius: 18, x: 0, y: 8)
-                                    .accessibilityIdentifier("stickerImage")
+                                VStack(spacing: 16) {
+                                    Image(uiImage: stickerImage)
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .antialiased(true)
+                                        .scaledToFit()
+                                        .frame(width: geo.size.width * 0.92)
+                                        .shadow(color: .black.opacity(0.32), radius: 18, x: 0, y: 8)
+                                        .accessibilityIdentifier("stickerImage")
+                                    
+                                    // Object detection results
+                                    if isDetecting {
+                                        HStack(spacing: 8) {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                            Text("Detecting object...")
+                                                .font(AppTheme.TextStyles.body())
+                                                .foregroundColor(AppTheme.secondary)
+                                        }
+                                    } else if let objectName = detectedObject {
+                                        VStack(spacing: 12) {
+                                            // English object name
+                                            Text(objectName.capitalized)
+                                                .font(AppTheme.TextStyles.title())
+                                                .foregroundColor(AppTheme.primary)
+                                                .bold()
+                                            
+                                            // Translations
+                                            if !translations.isEmpty {
+                                                VStack(spacing: 6) {
+                                                    ForEach(Array(translations.keys.sorted()), id: \.self) { langCode in
+                                                        if let translation = translations[langCode] {
+                                                            HStack {
+                                                                Text(languageFlag(for: langCode))
+                                                                    .font(AppTheme.TextStyles.subtitle())
+                                                                Text(translation)
+                                                                    .font(AppTheme.TextStyles.body())
+                                                                    .foregroundColor(AppTheme.secondary)
+                                                                Spacer()
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                .padding()
+                                                .background(Color.white.opacity(0.9))
+                                                .cornerRadius(12)
+                                            }
+                                        }
+                                    }
+                                }
                             } else {
                                 Image(uiImage: image)
                                     .resizable()
@@ -124,6 +171,59 @@ struct ImagePreviewOverlay: View {
         return formatter.string(from: Date())
     }
     
+    // MARK: - Object Detection and Translation
+    
+    private func detectAndTranslateObject(_ image: UIImage) async {
+        await MainActor.run {
+            self.isDetecting = true
+            self.detectedObject = nil
+            self.translations = [:]
+        }
+        
+        do {
+            let targetLanguages = ["es", "fr", "ja", "zh"] // Spanish, French, Japanese, Chinese
+            let results = try await ObjectDetectorAndTranslator.detectAndTranslate(
+                image: image,
+                targetLanguageCodes: targetLanguages
+            )
+            
+            // Get the first detected object with highest confidence
+            if let firstObject = results.keys.first {
+                let objectTranslations = results[firstObject] ?? [:]
+                
+                await MainActor.run {
+                    self.detectedObject = firstObject
+                    self.translations = objectTranslations
+                    self.isDetecting = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isDetecting = false
+                }
+            }
+        } catch {
+            print("❌ Object detection failed: \(error)")
+            await MainActor.run {
+                self.isDetecting = false
+            }
+        }
+    }
+    
+    private func languageFlag(for languageCode: String) -> String {
+        switch languageCode.lowercased() {
+        case "es": return "🇪🇸"
+        case "fr": return "🇫🇷"
+        case "ja": return "🇯🇵"
+        case "zh": return "🇨🇳"
+        case "de": return "🇩🇪"
+        case "it": return "🇮🇹"
+        case "pt": return "🇵🇹"
+        case "ru": return "🇷🇺"
+        case "ko": return "🇰🇷"
+        default: return "🌐"
+        }
+    }
+    
     private func extractSticker(from image: UIImage) {
         isExtracting = true
         // Run heavy vision + mask work off the main actor to avoid UI stalls
@@ -145,6 +245,9 @@ struct ImagePreviewOverlay: View {
                     self.stickerPoints = points
                     self.isExtracting = false
                 }
+                
+                // Start object detection after sticker extraction
+                await self.detectAndTranslateObject(lifted)
                 return
             }
             
