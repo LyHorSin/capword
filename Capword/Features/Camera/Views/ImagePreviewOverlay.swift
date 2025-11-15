@@ -49,7 +49,7 @@ struct ImagePreviewOverlay: View {
                                         .antialiased(true)
                                         .scaledToFit()
                                         .frame(width: geo.size.width * 0.92)
-                                        .shadow(color: .black.opacity(0.32), radius: 18, x: 0, y: 8)
+                                        .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
                                         .accessibilityIdentifier("stickerImage")
                                     
                                     // Object detection results
@@ -194,15 +194,6 @@ struct ImagePreviewOverlay: View {
         isExtracting = true
         // Run heavy vision + mask work off the main actor to avoid UI stalls
         Task.detached {
-            // Try Apple's VisionKit subject lifting (iOS 16+) - same as Photos app
-            if let lifted = await self.liftWithVisionKit(image) {
-                await MainActor.run {
-                    self.stickerImage = lifted
-                    self.isExtracting = false
-                }
-                return
-            }
-            
             // Fallback to Vision framework
             if let (lifted, path, points) = await self.maskWithVision(image) {
                 await MainActor.run {
@@ -219,12 +210,6 @@ struct ImagePreviewOverlay: View {
             
             await MainActor.run { self.isExtracting = false }
         }
-    }
-    
-    private func liftWithVisionKit(_ uiImage: UIImage) async -> UIImage? {
-        // VisionKit subject lifting is complex and not always available
-        // Skip it and use Vision framework directly for reliable results
-        return nil
     }
     
     // Fallback for iOS 16 or when VisionKit isn't supported
@@ -332,110 +317,74 @@ struct ImagePreviewOverlay: View {
         return (path, sortedPoints)
     }
     
-    // Same composite helper you used (preserves color, removes background)
-    fileprivate func compositeWithMask(image: UIImage, mask: CVPixelBuffer) -> UIImage? {
-        // Create a CIImage from the UIImage and apply its orientation so the CI pipeline
-        // works in the same visual coordinate space as the original image. The final
-        // CGImage we get back from the context will already be upright, so we return
-        // a UIImage with orientation `.up` to avoid double-rotation.
+    /// Returns a sticker (foreground cut-out) with an outline border.
+    /// - Parameters:
+    ///   - image: Source image
+    ///   - mask: 1-channel mask (foreground=white), same orientation used when produced
+    ///   - borderWidth: outline thickness in points
+    ///   - borderColor: outline color
+    ///   - edgeSoftness: small blur (points) to slightly soften the edge; set 0 for crisp
+    fileprivate func compositeWithMask(
+        image: UIImage,
+        mask: CVPixelBuffer,
+        borderWidth: CGFloat = 32,
+        borderColor: UIColor = .white,
+        edgeSoftness: CGFloat = 2
+    ) -> UIImage? {
+
+        // 1) Oriented input CIImage (so CI extent/coords match what Vision used)
         guard let input = CIImage(image: image) else { return nil }
         let imgOrientation = CGImagePropertyOrientation(uiOrientation: image.imageOrientation)
-        // Apply orientation to the input so `extent` and pixel coordinates match what
-        // Vision produced when we asked with the same orientation earlier.
         let orientedInput = input.oriented(forExifOrientation: Int32(imgOrientation.rawValue))
-        
+
+        // 2) Bring mask into the same oriented/scale space as the input
         var maskCI = CIImage(cvPixelBuffer: mask)
-        // If the mask and the input sizes differ, scale the mask into the oriented input space
         if maskCI.extent.size != orientedInput.extent.size {
             let sx = orientedInput.extent.width / max(maskCI.extent.width, 1)
             let sy = orientedInput.extent.height / max(maskCI.extent.height, 1)
             maskCI = maskCI.transformed(by: .init(scaleX: sx, y: sy))
         }
-        
+        maskCI = maskCI.cropped(to: orientedInput.extent)
+
+        // 3) Build the cut-out sticker (transparent background, foreground from image by mask)
         let clearBG = CIImage(color: .clear).cropped(to: orientedInput.extent)
-        let composed = orientedInput.applyingFilter("CIBlendWithMask", parameters: [
+        let cutout = orientedInput.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: clearBG,
             kCIInputMaskImageKey: maskCI
         ])
-        
-        // Reuse a shared CIContext to avoid repeated heavy context creation
+
+        // 4) Create a **thick halo mask** by dilating the original mask.
+        //    borderWidth is in points; convert to pixels.
+        let pxScale = max(image.scale, 1)
+        let borderPx = max(1, borderWidth * pxScale)
+
+        guard let dilate = CIFilter(name: "CIMorphologyMaximum") else { return nil }
+        dilate.setValue(maskCI, forKey: kCIInputImageKey)
+        dilate.setValue(borderPx, forKey: kCIInputRadiusKey)
+        var haloMask = dilate.outputImage?.cropped(to: orientedInput.extent) ?? maskCI
+
+        // Optional: soften the outer edge of the halo
+        if edgeSoftness > 0 {
+            let blurPx = edgeSoftness * pxScale
+            let blurred = haloMask.applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: blurPx])
+            haloMask = blurred.cropped(to: orientedInput.extent)
+        }
+
+        // 5) Paint the border color into the halo mask
+        let borderCIColor = CIColor(color: borderColor)
+        let borderColorImage = CIImage(color: borderCIColor).cropped(to: orientedInput.extent)
+        let borderLayer = borderColorImage.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: clearBG,
+            kCIInputMaskImageKey: haloMask
+        ])
+
+        // 6) Composite final: sticker (original mask) on top of thick colored halo
+        let final = cutout.composited(over: borderLayer)
+
+        // 7) Render with your shared CIContext
         let ctx = ImageProcessing.sharedCIContext
-        guard let out = ctx.createCGImage(composed, from: orientedInput.extent) else { return nil }
-        // `out` is already rendered in the correct (upright) orientation. Return as `.up`.
-        return UIImage(cgImage: out, scale: image.scale, orientation: .up)
-    }
-    
-    // Your existing 200×200 renderer is fine
-    fileprivate func renderToSquare(_ image: UIImage, side: CGFloat) -> UIImage {
-        let canvas = CGSize(width: side, height: side)
-        let scale = min(side / image.size.width, side / image.size.height)
-        let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let origin = CGPoint(x: (canvas.width - drawSize.width) * 0.5, y: (canvas.height - drawSize.height) * 0.5)
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = image.scale
-        fmt.opaque = false
-        return UIGraphicsImageRenderer(size: canvas, format: fmt).image { _ in
-            image.draw(in: CGRect(origin: origin, size: drawSize))
-        }
-    }
-
-    /// Render a new `UIImage` clipped to `path` with an optional border drawn on top.
-    /// - Parameters:
-    ///   - image: source image to draw
-    ///   - size: target output size in points
-    ///   - path: a `UIBezierPath` describing the shape (in output coordinates)
-    ///   - borderColor: color for the border stroke
-    ///   - borderWidth: stroke width in points
-    ///   - contentMode: how the image is placed into the shape (defaults to scaleAspectFill)
-    fileprivate func renderShapedImage(_ image: UIImage,
-                                      size: CGSize,
-                                      path: UIBezierPath,
-                                      borderColor: UIColor = .white,
-                                      borderWidth: CGFloat = 3,
-                                      contentMode: UIView.ContentMode = .scaleAspectFill) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = UIScreen.main.scale
-        format.opaque = false
-
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { ctx in
-            let rect = CGRect(origin: .zero, size: size)
-
-            // Save context state
-            ctx.cgContext.saveGState()
-
-            // Clip to the provided path
-            path.addClip()
-
-            // Compute image drawing rect based on contentMode
-            let imgRect: CGRect = {
-                switch contentMode {
-                case .scaleAspectFill:
-                    let i = image.size
-                    let s = max(rect.width / max(1, i.width), rect.height / max(1, i.height))
-                    let w = i.width * s, h = i.height * s
-                    return CGRect(x: rect.midX - w/2, y: rect.midY - h/2, width: w, height: h)
-                case .scaleAspectFit:
-                    let i = image.size
-                    let s = min(rect.width / max(1, i.width), rect.height / max(1, i.height))
-                    let w = i.width * s, h = i.height * s
-                    return CGRect(x: rect.midX - w/2, y: rect.midY - h/2, width: w, height: h)
-                default:
-                    return rect
-                }
-            }()
-
-            // Draw image into clipped area
-            image.draw(in: imgRect)
-
-            // Restore before stroking (stroke should not be clipped by fill)
-            ctx.cgContext.restoreGState()
-
-            // Stroke the path on top
-            borderColor.setStroke()
-            path.lineWidth = borderWidth
-            path.stroke()
-        }
+        guard let cg = ctx.createCGImage(final, from: orientedInput.extent) else { return nil }
+        return UIImage(cgImage: cg, scale: image.scale, orientation: .up)
     }
 }
 
