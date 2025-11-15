@@ -20,10 +20,12 @@ struct ImagePreviewOverlay: View {
     @State private var isExtracting = false
     @State private var stickerPath: Path?
     @State private var stickerPoints: [CGPoint]? // normalized points (0..1) around contour
+    // simple toggle to drive sticker-change animation (UIImage is not Equatable)
+    @State private var stickerAnimationTrigger = false
     
     // Object detection and translation
     @State private var detectedObject: String?
-    @State private var translations: [String: String] = [:]
+    @State private var translation: String?
     @State private var isDetecting = false
     
     var body: some View {
@@ -39,60 +41,91 @@ struct ImagePreviewOverlay: View {
                 
                 GeometryReader { geo in
                     HStack {
-                        Spacer(minLength: 0)
-                        Group {
-                            if let stickerImage = stickerImage {
-                                VStack(spacing: 16) {
-                                    Image(uiImage: stickerImage)
-                                        .resizable()
-                                        .interpolation(.high)
-                                        .antialiased(true)
-                                        .scaledToFit()
-                                        .frame(width: geo.size.width * 0.92)
-                                        .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
-                                        .overlay(alignment: .bottom) {
-                                            if let objectName = detectedObject {
-                                                // English object name — center it over the bottom of the image
-                                                StrokeLabelView(
-                                                    text: objectName,
-                                                    font: AppTheme.TextStyles.headerUIFont(),
-                                                    textColor: UIColor(AppTheme.primary),
-                                                    strokeColor: .white,
-                                                    strokeSize: 12,
-                                                    textAlignment: .center
-                                                )
-                                                .fixedSize(horizontal: false, vertical: true)
-                                                .frame(width: geo.size.width * 0.92, alignment: .center)
-                                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
-                                            }
-                                        }
-                                        .accessibilityIdentifier("stickerImage")
-                                    
-                                    // Object detection results
+                        ZStack(alignment: .bottom) {
+                            Image(uiImage: stickerImage ?? image)
+                                .resizable()
+                                .interpolation(.high)
+                                .antialiased(true)
+                                .scaledToFit()
+                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                .accessibilityIdentifier("stickerImage")
+                                .scaleEffect(stickerAnimationTrigger ? 1.0 : 0.985)
+                                .opacity(stickerAnimationTrigger ? 1.0 : 0.96)
+                                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: stickerAnimationTrigger)
+                                .onChange(of: stickerImage) {
+                                    stickerAnimationTrigger.toggle()
+                                }
+                                // Top-to-bottom wave while detecting (fade in/out)
+                                .overlay(alignment: .center) {
                                     if isDetecting {
-                                        HStack(spacing: 8) {
-                                            ProgressView()
-                                                .scaleEffect(0.8)
-                                            Text("Detecting object...")
-                                                .font(AppTheme.TextStyles.body())
-                                                .foregroundColor(AppTheme.secondary)
+                                        TopToBottomWave(isActive: $isDetecting)
+                                            .blendMode(.screen)
+                                            .opacity(0.28)
+                                            .transition(.opacity)
+                                            .animation(.easeInOut(duration: 0.22), value: isDetecting)
+                                    }
+                                }
+                            
+                            VStack(spacing: 12) {
+                                StrokeLabelView(
+                                    text: detectedObject ?? "",
+                                    font: AppTheme.TextStyles.headerUIFont(),
+                                    textColor: UIColor(AppTheme.primary),
+                                    strokeColor: .white,
+                                    strokeSize: 12,
+                                    textAlignment: .center
+                                )
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                
+                                if let translation = translation, !translation.isEmpty {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .resizable()
+                                        .font(AppTheme.TextStyles.title())
+                                        .bold()
+                                        .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                        .frame(width: 14, height: 14)
+                                }
+                                
+                                StrokeLabelView(
+                                    text: translation ?? "",
+                                    font: AppTheme.TextStyles.headerUIFont(),
+                                    textColor: UIColor(AppTheme.primary),
+                                    strokeColor: .white,
+                                    strokeSize: 12,
+                                    textAlignment: .center
+                                )
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                .padding(.bottom, 12)
+                                
+                                if let translation = translation, !translation.isEmpty {
+                                    Button(action: {
+                                        Vibration.fire(.impact(.soft))
+                                        TextToSpeechProvider.shared.speak(translation, languageCode: "zh-CN")
+                                    }) {
+                                        ZStack {
+                                            Circle()
+                                                .fill(Color.clear)
+                                                .frame(width: 55, height: 55)
+                                                
+                                            Image(systemName: "speaker.wave.3")
+                                                .font(.system(size: 28, weight: .semibold))
+                                                .foregroundColor(.white)
+                                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
                                         }
                                     }
                                 }
-                            } else {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: geo.size.width * 0.92)
-                                    .overlay(
-                                        isExtracting ? ProgressView().scaleEffect(2) : nil
-                                    )
-                                    .accessibilityIdentifier("sourceImage")
                             }
+                            .transition(.identity)
+                            .animation(Animation.linear(duration: 0.3), value: detectedObject)
+                            
                         }
-                        Spacer(minLength: 0)
+                        .padding(.horizontal, 24)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
                 
                 Spacer()
@@ -164,24 +197,24 @@ struct ImagePreviewOverlay: View {
         await MainActor.run {
             self.isDetecting = true
             self.detectedObject = nil
-            self.translations = [:]
+            self.translation = nil
         }
         
         do {
-            let targetLanguages = ["zh"] // Spanish, French, Japanese, Chinese
+            let targetLanguage = "zh" // Spanish, French, Japanese, Chinese
             let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithModel(
                 named: "MobileNetV2",
                 image: image,
-                targetLanguageCodes: targetLanguages
+                targetLanguageCodes: [targetLanguage]
             )
             
             // Get the first detected object with highest confidence
             if let firstObject = results.keys.first {
-                let objectTranslations = results[firstObject] ?? [:]
-                
+                let objectTranslation = results[firstObject]?[targetLanguage] ?? nil
+
                 await MainActor.run {
                     self.detectedObject = firstObject
-                    self.translations = objectTranslations
+                    self.translation = objectTranslation
                     self.isDetecting = false
                 }
             } else {

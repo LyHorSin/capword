@@ -12,7 +12,6 @@ import CoreML
 import NaturalLanguage
 
 
-
 class ObjectDetectorAndTranslator {
 
     enum DetectionError: Error {
