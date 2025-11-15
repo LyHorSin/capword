@@ -49,7 +49,7 @@ struct CameraView: View {
             }
             
             // Full-screen image preview overlay
-            if showPreview, let image = capturedImage {
+            if let image = capturedImage {
                 ImagePreviewOverlay(image: image, onRetake: {
                     showPreview = false
                     capturedImage = nil

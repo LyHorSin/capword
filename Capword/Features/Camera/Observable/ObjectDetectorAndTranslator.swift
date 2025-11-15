@@ -100,13 +100,11 @@ class ObjectDetectorAndTranslator {
 
         // Run Vision detection and get label strings
         let labels = try await runVisionDetection(with: mlModel, cgImage: cgImage)
-
-        // Translate labels
+        
         var finalResults: [String: [String: String]] = [:]
-        for label in labels {
-            finalResults[label] = try await translateLabel(label, to: targetLanguageCodes)
+        if let first = labels.first {
+            finalResults[first] = try await translateLabel(first, to: targetLanguageCodes)
         }
-
         return finalResults
     }
 
