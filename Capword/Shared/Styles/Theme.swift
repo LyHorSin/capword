@@ -101,6 +101,48 @@ enum AppTheme {
             }
             return SwiftUI.Font.system(size: Constants.FontSize.caption, weight: SwiftUI.Font.Weight.regular, design: .default)
         }
+
+        // MARK: - UIKit UIFont counterparts
+
+        /// Return a `UIFont` suitable for use in UIKit APIs for the header style
+        static func headerUIFont() -> UIFont {
+            if let font = UIFont(name: Constants.primarySerifFontName, size: Constants.FontSize.largeTitle) {
+                return font
+            }
+            return UIFont.systemFont(ofSize: Constants.FontSize.largeTitle, weight: .semibold)
+        }
+
+        /// Return a `UIFont` suitable for use in UIKit APIs for the title style
+        static func titleUIFont() -> UIFont {
+            if let font = UIFont(name: Constants.primarySerifFontName, size: Constants.FontSize.title) {
+                return font
+            }
+            return UIFont.systemFont(ofSize: Constants.FontSize.title, weight: .semibold)
+        }
+
+        /// Return a `UIFont` suitable for use in UIKit APIs for the subtitle style
+        static func subtitleUIFont() -> UIFont {
+            if let font = UIFont(name: Constants.primarySerifFontName, size: Constants.FontSize.subtitle) {
+                return font
+            }
+            return UIFont.systemFont(ofSize: Constants.FontSize.subtitle, weight: .regular)
+        }
+
+        /// Return a `UIFont` suitable for use in UIKit APIs for the body style
+        static func bodyUIFont() -> UIFont {
+            if let font = UIFont(name: Constants.primarySansFontName, size: Constants.FontSize.body) {
+                return font
+            }
+            return UIFont.systemFont(ofSize: Constants.FontSize.body, weight: .regular)
+        }
+
+        /// Return a `UIFont` suitable for use in UIKit APIs for the caption style
+        static func captionUIFont() -> UIFont {
+            if let font = UIFont(name: Constants.primarySansFontName, size: Constants.FontSize.caption) {
+                return font
+            }
+            return UIFont.systemFont(ofSize: Constants.FontSize.caption, weight: .regular)
+        }
     }
 
     // Card style view modifier

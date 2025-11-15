@@ -50,6 +50,22 @@ struct ImagePreviewOverlay: View {
                                         .scaledToFit()
                                         .frame(width: geo.size.width * 0.92)
                                         .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                        .overlay(alignment: .bottom) {
+                                            if let objectName = detectedObject {
+                                                // English object name — center it over the bottom of the image
+                                                StrokeLabelView(
+                                                    text: objectName,
+                                                    font: AppTheme.TextStyles.headerUIFont(),
+                                                    textColor: UIColor(AppTheme.primary),
+                                                    strokeColor: .white,
+                                                    strokeSize: 12,
+                                                    textAlignment: .center
+                                                )
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .frame(width: geo.size.width * 0.92, alignment: .center)
+                                                .shadow(color: .black.opacity(0.42), radius: 18, x: 0, y: 8)
+                                            }
+                                        }
                                         .accessibilityIdentifier("stickerImage")
                                     
                                     // Object detection results
@@ -60,15 +76,6 @@ struct ImagePreviewOverlay: View {
                                             Text("Detecting object...")
                                                 .font(AppTheme.TextStyles.body())
                                                 .foregroundColor(AppTheme.secondary)
-                                        }
-                                    } else if let objectName = detectedObject {
-                                        VStack(spacing: 12) {
-                                            // English object name
-                                            Text(objectName.capitalized)
-                                                .font(AppTheme.TextStyles.title())
-                                                .foregroundColor(AppTheme.primary)
-                                                .multilineTextAlignment(.center)
-                                                .bold()
                                         }
                                     }
                                 }
@@ -329,9 +336,10 @@ struct ImagePreviewOverlay: View {
         mask: CVPixelBuffer,
         borderWidth: CGFloat = 32,
         borderColor: UIColor = .white,
-        edgeSoftness: CGFloat = 2
+        edgeSoftness: CGFloat = 2,
+        cropToContent: Bool = true,
+        contentPadding: CGFloat = 0 // in points
     ) -> UIImage? {
-
         // 1) Oriented input CIImage (so CI extent/coords match what Vision used)
         guard let input = CIImage(image: image) else { return nil }
         let imgOrientation = CGImagePropertyOrientation(uiOrientation: image.imageOrientation)
@@ -354,7 +362,6 @@ struct ImagePreviewOverlay: View {
         ])
 
         // 4) Create a **thick halo mask** by dilating the original mask.
-        //    borderWidth is in points; convert to pixels.
         let pxScale = max(image.scale, 1)
         let borderPx = max(1, borderWidth * pxScale)
 
@@ -384,33 +391,16 @@ struct ImagePreviewOverlay: View {
         // 7) Render with your shared CIContext
         let ctx = ImageProcessing.sharedCIContext
         guard let cg = ctx.createCGImage(final, from: orientedInput.extent) else { return nil }
-        return UIImage(cgImage: cg, scale: image.scale, orientation: .up)
-    }
-}
 
-enum ImageProcessing {
-    static let sharedCIContext: CIContext = {
-        let opts: [CIContextOption: Any] = [
-            .useSoftwareRenderer: false,
-            .cacheIntermediates: true
-        ]
-        return CIContext(options: opts)
-    }()
-}
+        let rendered = UIImage(cgImage: cg, scale: image.scale, orientation: .up)
 
-extension CGImagePropertyOrientation {
-    init(uiOrientation: UIImage.Orientation) {
-        switch uiOrientation {
-        case .up: self = .up
-        case .down: self = .down
-        case .left: self = .left
-        case .right: self = .right
-        case .upMirrored: self = .upMirrored
-        case .downMirrored: self = .downMirrored
-        case .leftMirrored: self = .leftMirrored
-        case .rightMirrored: self = .rightMirrored
-        @unknown default: self = .up
+        // 8) Crop to real content size (non-transparent area) if requested
+        if cropToContent {
+            return rendered.croppedToNonTransparent(paddingPoints: contentPadding)
+        } else {
+            return rendered
         }
     }
 }
+
 
