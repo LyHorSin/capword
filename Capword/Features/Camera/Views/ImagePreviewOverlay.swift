@@ -67,28 +67,8 @@ struct ImagePreviewOverlay: View {
                                             Text(objectName.capitalized)
                                                 .font(AppTheme.TextStyles.title())
                                                 .foregroundColor(AppTheme.primary)
+                                                .multilineTextAlignment(.center)
                                                 .bold()
-                                            
-                                            // Translations
-                                            if !translations.isEmpty {
-                                                VStack(spacing: 6) {
-                                                    ForEach(Array(translations.keys.sorted()), id: \.self) { langCode in
-                                                        if let translation = translations[langCode] {
-                                                            HStack {
-                                                                Text(languageFlag(for: langCode))
-                                                                    .font(AppTheme.TextStyles.subtitle())
-                                                                Text(translation)
-                                                                    .font(AppTheme.TextStyles.body())
-                                                                    .foregroundColor(AppTheme.secondary)
-                                                                Spacer()
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                .padding()
-                                                .background(Color.white.opacity(0.9))
-                                                .cornerRadius(12)
-                                            }
                                         }
                                     }
                                 }
@@ -181,8 +161,9 @@ struct ImagePreviewOverlay: View {
         }
         
         do {
-            let targetLanguages = ["es", "fr", "ja", "zh"] // Spanish, French, Japanese, Chinese
-            let results = try await ObjectDetectorAndTranslator.detectAndTranslate(
+            let targetLanguages = ["zh"] // Spanish, French, Japanese, Chinese
+            let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithModel(
+                named: "MobileNetV2",
                 image: image,
                 targetLanguageCodes: targetLanguages
             )
@@ -206,21 +187,6 @@ struct ImagePreviewOverlay: View {
             await MainActor.run {
                 self.isDetecting = false
             }
-        }
-    }
-    
-    private func languageFlag(for languageCode: String) -> String {
-        switch languageCode.lowercased() {
-        case "es": return "🇪🇸"
-        case "fr": return "🇫🇷"
-        case "ja": return "🇯🇵"
-        case "zh": return "🇨🇳"
-        case "de": return "🇩🇪"
-        case "it": return "🇮🇹"
-        case "pt": return "🇵🇹"
-        case "ru": return "🇷🇺"
-        case "ko": return "🇰🇷"
-        default: return "🌐"
         }
     }
     
