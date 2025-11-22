@@ -28,7 +28,7 @@ enum AppTheme {
     static let secondary = Color(hex: 0x767676) // muted gray
     
     static let tertiary = Color(hex: 0xEAC9AB)
-    static let onTertiary = Color(hex: 0xF6F2ED)
+    static let onTertiary = Color(hex: 0xD8A7A2)
 
     // Accent / brand
     static let accent = Color(hex: 0xF7B500) // warm mustard/yellow

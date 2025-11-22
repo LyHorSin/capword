@@ -11,7 +11,8 @@ struct ProfileView: View {
     // State for interactive settings
     @State private var dailyReminderEnabled: Bool = false
     @State private var reviewReminderEnabled: Bool = true
-    @State private var selectedLanguage: String = "Chinese"
+    @State private var showLanguageView: Bool = false
+    @ObservedObject private var settings = UserSettings.shared
     @Environment(\.presentationMode) private var presentationMode
 
     
@@ -83,17 +84,25 @@ struct ProfileView: View {
     }
     
     private var languagePill: some View {
-        HStack(spacing: 12) {
-            Text("🇨🇳")
-                .font(AppTheme.TextStyles.subtitle())
-            Text(selectedLanguage)
-                .font(AppTheme.TextStyles.subtitle())
-                .foregroundColor(AppTheme.secondary)
+        Button(action: {
+            showLanguageView = true
+        }) {
+            HStack(spacing: 12) {
+                Text(settings.getFlagForLanguage(settings.selectedLanguage))
+                    .font(AppTheme.TextStyles.subtitle())
+                Text(settings.selectedLanguage)
+                    .font(AppTheme.TextStyles.subtitle())
+                    .foregroundColor(AppTheme.secondary)
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 18)
+            .background(Color.white)
+            .clipShape(Capsule())
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 18)
-        .background(Color.white)
-        .clipShape(Capsule())
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showLanguageView) {
+            LanguageView(selectedLanguage: $settings.selectedLanguage)
+        }
     }
     
     private var premiumCard: some View {

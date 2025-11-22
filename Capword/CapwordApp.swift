@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct CapwordApp: App {
@@ -13,5 +14,6 @@ struct CapwordApp: App {
         WindowGroup {
             HomeView()
         }
+        .modelContainer(WordStorage.shared.modelContainer)
     }
 }

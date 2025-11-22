@@ -13,8 +13,12 @@ import VisionKit
 
 struct ImagePreviewOverlay: View {
     let image: UIImage
-    let onRetake: () -> Void
-    let onUse: () -> Void
+    let onRetake: (() -> Void)?
+    let onUse: (() -> Void)?
+    let detectedText: String?
+    let translationText: String?
+    let targetLanguage: String?
+    let isViewOnly: Bool
     
     @State private var stickerImage: UIImage?
     @State private var isExtracting = false
@@ -27,6 +31,16 @@ struct ImagePreviewOverlay: View {
     @State private var detectedObject: String?
     @State private var translation: String?
     @State private var isDetecting = false
+    
+    init(image: UIImage, onRetake: (() -> Void)? = nil, onUse: (() -> Void)? = nil, detectedText: String? = nil, translationText: String? = nil, targetLanguage: String? = nil, isViewOnly: Bool = false) {
+        self.image = image
+        self.onRetake = onRetake
+        self.onUse = onUse
+        self.detectedText = detectedText
+        self.translationText = translationText
+        self.targetLanguage = targetLanguage
+        self.isViewOnly = isViewOnly
+    }
     
     var body: some View {
         ZStack {
@@ -104,7 +118,8 @@ struct ImagePreviewOverlay: View {
                                 if let translation = translation, !translation.isEmpty {
                                     Button(action: {
                                         Vibration.fire(.impact(.soft))
-                                        TextToSpeechProvider.shared.speak(translation, languageCode: "zh-CN")
+                                        let languageCode = isViewOnly ? (targetLanguage ?? UserSettings.shared.getSpeechLanguageCode()) : UserSettings.shared.getSpeechLanguageCode()
+                                        TextToSpeechProvider.shared.speak(translation, languageCode: languageCode)
                                     }) {
                                         ZStack {
                                             Circle()
@@ -130,56 +145,64 @@ struct ImagePreviewOverlay: View {
                 
                 Spacer()
                 
-                HStack(alignment: .center, spacing: 80) {
-                    Button(action: {
-                        Vibration.fire(.impact(.soft))
-                        onRetake()
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.35))
-                                .frame(width: 55, height: 55)
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(.white)
+                if !isViewOnly {
+                    HStack(alignment: .center, spacing: 80) {
+                        Button(action: {
+                            Vibration.fire(.impact(.soft))
+                            onRetake?()
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black.opacity(0.35))
+                                    .frame(width: 55, height: 55)
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        
+                        Button(action: {
+                            Vibration.fire(.impact(.medium))
+                            saveWord()
+                            onUse?()
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 66, height: 66)
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 40, weight: .bold))
+                                    .foregroundColor(Color(hex: 0x8B7FED))
+                            }
+                        }
+                        
+                        Button(action: {
+                            Vibration.fire(.impact(.soft))
+                            extractSticker(from: image)
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black.opacity(0.35))
+                                    .frame(width: 55, height: 55)
+                                Image(systemName: "crop")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
                         }
                     }
-                    
-                    Button(action: {
-                        Vibration.fire(.impact(.medium))
-                        onUse()
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 66, height: 66)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 40, weight: .bold))
-                                .foregroundColor(Color(hex: 0x8B7FED))
-                        }
-                    }
-                    
-                    Button(action: {
-                        Vibration.fire(.impact(.soft))
-                        extractSticker(from: image)
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.35))
-                                .frame(width: 55, height: 55)
-                            Image(systemName: "crop")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
             }
             .paddingContent()
         }
         .transition(.opacity)
         .onAppear {
-            if stickerImage == nil {
+            if isViewOnly {
+                // In view-only mode, use pre-populated data
+                stickerImage = image
+                detectedObject = detectedText
+                translation = translationText
+            } else if stickerImage == nil {
                 extractSticker(from: image)
             }
         }
@@ -189,6 +212,32 @@ struct ImagePreviewOverlay: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM dd"
         return formatter.string(from: Date())
+    }
+    
+    // MARK: - Save Word
+    
+    private func saveWord() {
+        guard let detectedText = detectedObject,
+              let translatedText = translation,
+              !detectedText.isEmpty,
+              !translatedText.isEmpty else {
+            print("⚠️ Cannot save: missing detected object or translation")
+            return
+        }
+        
+        Task { @MainActor in
+            do {
+                try WordStorage.shared.saveWord(
+                    detectedText: detectedText,
+                    translation: translatedText,
+                    targetLanguage: UserSettings.shared.selectedLanguage,
+                    image: stickerImage
+                )
+                print("✅ Word saved: \(detectedText) -> \(translatedText)")
+            } catch {
+                print("❌ Failed to save word: \(error)")
+            }
+        }
     }
     
     // MARK: - Object Detection and Translation
@@ -201,7 +250,7 @@ struct ImagePreviewOverlay: View {
         }
         
         do {
-            let targetLanguage = "zh" // Spanish, French, Japanese, Chinese
+            let targetLanguage = UserSettings.shared.getLanguageCode()
             let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithModel(
                 named: "MobileNetV2FP16",
                 image: image,

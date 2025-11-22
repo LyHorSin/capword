@@ -40,7 +40,7 @@ struct CircleProgressView: View {
     }
 }
  
-private struct CircleSegmentView: View {
+struct CircleSegmentView: View {
     // allow configurable line width and gap; provide defaults for backwards compatibility
     private let lineWidth: Double
     private let desiredGapPerSegment: Double
