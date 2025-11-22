@@ -14,7 +14,9 @@ struct HomeView: View {
     @State private var showCircle: Bool = false
     @State private var showDailyProgress: Bool = false
     @State private var showCamera: Bool = false
+    @State private var showSubscription: Bool = false
     @StateObject private var cameraManager = CameraManager()
+    private let subscriptionHelper = SubscriptionHelper.shared
 
     // Split directions for easy use
     private var upOffset: CGFloat { max(0, scrollOffset) }      // scrolling up
@@ -79,7 +81,11 @@ struct HomeView: View {
                                 .animation(.easeOut(duration: 0.2), value: circleParallaxY)
                                 .onTapGesture {
                                     Vibration.fire(.impact(.medium))
-                                    showCamera = true
+                                    if subscriptionHelper.shouldShowSubscription() {
+                                        showSubscription = true
+                                    } else {
+                                        showCamera = true
+                                    }
                                 }
                             
                             NavigationLink(destination: WordsView()) {
@@ -106,6 +112,9 @@ struct HomeView: View {
             }
             .fullScreenCover(isPresented: $showCamera) {
                 CameraView(cameraManager: cameraManager)
+            }
+            .fullScreenCover(isPresented: $showSubscription) {
+                SubscriptionView()
             }
         }
     }

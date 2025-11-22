@@ -21,6 +21,13 @@ class ObjectDetectorAndTranslator {
         case noObjectsDetected
     }
     
+    /// Get the device's system language code (e.g., "en", "zh", "es")
+    private static func getSystemLanguageCode() -> String {
+        let preferredLanguage = Locale.preferredLanguages.first ?? "en"
+        let languageCode = Locale(identifier: preferredLanguage).language.languageCode?.identifier ?? "en"
+        return languageCode
+    }
+    
     /// Pluggable translation provider protocol. Implement this to integrate any translation backend
     protocol TranslationProvider {
         /// Translate a single piece of text from source (if known) to target language code (ISO)
@@ -36,6 +43,105 @@ class ObjectDetectorAndTranslator {
     /// NOTE: For production, do not hardcode API keys in your app binary. Prefer fetching keys/tokens from a secure server.
     static func configureGoogleProvider(apiKey: String) {
         translationProvider = GoogleTranslationProvider(apiKey: apiKey)
+    }
+    
+    // MARK: - Google Cloud Vision API for Object Detection
+    
+    /// Detect objects using Google Cloud Vision API and translate
+    static func detectAndTranslateWithGoogleVision(
+        image: UIImage,
+        targetLanguageCodes: [String]
+    ) async throws -> [String: [String: String]] {
+        
+        // Convert image to base64
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw DetectionError.invalidImage
+        }
+        let base64Image = imageData.base64EncodedString()
+        
+        // Call Google Cloud Vision API
+        let labels = try await detectWithGoogleVision(base64Image: base64Image)
+        
+        guard let firstLabel = labels.first else {
+            throw DetectionError.noObjectsDetected
+        }
+        
+        // Translate the detected object
+        var finalResults: [String: [String: String]] = [:]
+        finalResults[firstLabel] = try await translateLabel(firstLabel, to: targetLanguageCodes)
+        
+        return finalResults
+    }
+    
+    /// Call Google Cloud Vision API for label detection
+    private static func detectWithGoogleVision(base64Image: String) async throws -> [String] {
+        let apiKey = License.googleCloudVisionApiKey // Reuse the same API key
+        let systemLanguage = getSystemLanguageCode()
+        
+        guard let url = URL(string: "https://vision.googleapis.com/v1/images:annotate?key=\(apiKey)") else {
+            throw DetectionError.detectionFailed(NSError(domain: "VisionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Google Vision URL"]))
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        if let bundleId = Bundle.main.bundleIdentifier {
+            request.setValue(bundleId, forHTTPHeaderField: "X-Ios-Bundle-Identifier")
+        }
+        
+        let body: [String: Any] = [
+            "requests": [
+                [
+                    "image": ["content": base64Image],
+                    "features": [
+                        ["type": "LABEL_DETECTION", "maxResults": 5]
+                    ],
+                    "imageContext": [
+                        "languageHints": [systemLanguage]
+                    ]
+                ]
+            ]
+        ]
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let status = http.statusCode
+            let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            print("❌ Google Vision API error — status: \(status), body: \(body)")
+            throw DetectionError.detectionFailed(NSError(domain: "VisionError", code: status, userInfo: [NSLocalizedDescriptionKey: "Google Vision API error (status: \(status))"]))
+        }
+        
+        struct VisionResponse: Decodable {
+            struct Response: Decodable {
+                struct LabelAnnotation: Decodable {
+                    let description: String
+                    let score: Double
+                }
+                let labelAnnotations: [LabelAnnotation]?
+            }
+            let responses: [Response]
+        }
+        
+        let parsed = try JSONDecoder().decode(VisionResponse.self, from: data)
+        
+        guard let labels = parsed.responses.first?.labelAnnotations, !labels.isEmpty else {
+            throw DetectionError.noObjectsDetected
+        }
+        
+        // Return top labels with confidence > 0.7
+        let topLabels = labels
+            .filter { $0.score > 0.7 }
+            .sorted(by: { $0.score > $1.score })
+            .prefix(3)
+            .map { $0.description.lowercased() }
+        
+        print("✅ Google Vision detected (lang: \(systemLanguage)): \(topLabels)")
+        
+        return Array(topLabels)
     }
 
     /// Advanced translateLabel: detects source language, then translates concurrently using the configured provider.
@@ -105,14 +211,6 @@ class ObjectDetectorAndTranslator {
             finalResults[first] = try await translateLabel(first, to: targetLanguageCodes)
         }
         return finalResults
-    }
-
-    /// Convenience wrapper for yolov8n
-    static func detectAndTranslateWithYolov8n(
-        image: UIImage,
-        targetLanguageCodes: [String]
-    ) async throws -> [String: [String: String]] {
-        return try await detectAndTranslateWithModel(named: "yolov8n", image: image, targetLanguageCodes: targetLanguageCodes)
     }
 
     /// Load an MLModel from bundle by trying common resource forms for the given base name

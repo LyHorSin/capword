@@ -10,16 +10,23 @@ import SwiftData
 
 struct DailyProgressCardView: View {
     
-    @Query(sort: \CapturedWord.capturedDate, order: .reverse, animation: .spring(response: 0.4, dampingFraction: 0.75))
-    private var allWords: [CapturedWord]
+    // Query only today's words directly from SwiftData for better performance
+    @Query private var todayWords: [CapturedWord]
     
-    // Get today's words
-    private var todayWords: [CapturedWord] {
+    init() {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        return allWords.filter { word in
-            calendar.isDate(word.capturedDate, inSameDayAs: today)
+        let startOfToday = calendar.startOfDay(for: Date())
+        let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? Date()
+        
+        let predicate = #Predicate<CapturedWord> { word in
+            word.capturedDate >= startOfToday && word.capturedDate < endOfToday
         }
+        
+        _todayWords = Query(
+            filter: predicate,
+            sort: \CapturedWord.capturedDate,
+            order: .reverse
+        )
     }
     
     private var currentMonth: String {
@@ -36,7 +43,7 @@ struct DailyProgressCardView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(currentMonth)
+            Text("Image to your language")
                 .font(AppTheme.TextStyles.title())
                 .foregroundColor(AppTheme.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -67,24 +74,66 @@ struct DailyProgressCardView: View {
                     
                     // Display word stickers
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        LazyHStack(spacing: 12) {
                             ForEach(todayWords.prefix(10)) { word in
-                                if let imageData = word.imageData,
-                                   let uiImage = UIImage(data: imageData) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(height: 80)
-                                        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                }
+                                ThumbnailImageView(imageData: word.imageData)
                             }
                         }
+                        .padding(.horizontal, 1) // Small padding to prevent clipping
                     }
+                    .frame(height: 80)
                 }
                 .padding(20)
                 .background(AppTheme.onTertiary)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Constants.cornerRadius))
             }
+        }
+    }
+}
+
+// Optimized thumbnail view with cached image loading
+private struct ThumbnailImageView: View {
+    let imageData: Data?
+    @State private var cachedImage: UIImage?
+    
+    var body: some View {
+        Group {
+            if let cachedImage = cachedImage {
+                Image(uiImage: cachedImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 80)
+                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+            } else {
+                Color.gray.opacity(0.2)
+                    .frame(width: 60, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .task {
+            await loadImage()
+        }
+    }
+    
+    private func loadImage() async {
+        guard let imageData = imageData else { return }
+        
+        // Load image on background thread
+        let image = await Task.detached(priority: .userInitiated) {
+            // Create thumbnail instead of full resolution
+            guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
+                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 160
+                  ] as CFDictionary) else {
+                return UIImage(data: imageData)
+            }
+            return UIImage(cgImage: cgImage)
+        }.value
+        
+        await MainActor.run {
+            self.cachedImage = image
         }
     }
 }

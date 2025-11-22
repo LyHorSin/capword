@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ProfileView: View {
     // State for interactive settings
-    @State private var dailyReminderEnabled: Bool = false
+
     @State private var reviewReminderEnabled: Bool = true
     @State private var showLanguageView: Bool = false
     @ObservedObject private var settings = UserSettings.shared
@@ -142,15 +142,15 @@ struct ProfileView: View {
             sectionHeader("Settings")
             settingsCard(
                 VStack(spacing: 0) {
-                    toggleRow(icon: "bell", title: "Daily Reminder", isOn: $dailyReminderEnabled)
+                    navigationRow(icon: "globe", title: "System Language", detail: systemLanguageDisplayName)
                     divider
-                    navigationRow(icon: "globe", title: "System Language", detail: "English")
+                    navigationRow(icon: "flag", title: "Preferred Language", detail: settings.selectedLanguage, action: {
+                        showLanguageView = true
+                    })
                     divider
                     navigationRow(icon: "waveform", title: "Change Voice", detail: "")
                     divider
                     navigationRow(icon: "trash", title: "Clear Cache", detail: "366 KB")
-                    divider
-                    toggleRow(icon: "square.on.square", title: "Review Reminder", isOn: $reviewReminderEnabled)
                     divider
                     navigationRow(icon: "star", title: "Subscription", detail: "Free")
                 }
@@ -159,6 +159,12 @@ struct ProfileView: View {
         .opacity(showSettings ? 1 : 0)
         .offset(y: showSettings ? 0 : 30)
         .animation(.easeOut(duration: 0.5).delay(0.2), value: showSettings)
+    }
+    
+    private var systemLanguageDisplayName: String {
+        let preferredLanguage = Locale.preferredLanguages.first ?? "en"
+        let locale = Locale.current
+        return locale.localizedString(forIdentifier: preferredLanguage) ?? "English"
     }
     
     private var supportSection: some View {
@@ -251,18 +257,27 @@ struct ProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Constants.cornerRadius))
     }
     
-    private func navigationRow(icon: String, title: String, detail: String = "") -> some View {
-        Button(action: {}) {
+    private func navigationRow(icon: String, title: String, detail: String = "", action: (() -> Void)? = nil) -> some View {
+        Button(action: {
+            if let action = action {
+                action()
+            } else {
+                // Open iOS Settings app
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        }) {
             HStack(spacing: 16) {
                 iconCircle(icon)
                 Text(title)
                     .font(AppTheme.TextStyles.body())
                     .foregroundColor(AppTheme.primary)
-                    .bold()
+
                 Spacer()
                 if !detail.isEmpty {
                     Text(detail)
-                        .font(AppTheme.TextStyles.body())
+                        .font(AppTheme.TextStyles.caption())
                         .foregroundColor(AppTheme.secondary)
                 }
                 Image(systemName: "chevron.right")

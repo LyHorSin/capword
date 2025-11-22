@@ -61,7 +61,15 @@ final class TextToSpeechProvider: NSObject, ObservableObject {
         }
 
         // Last resort: try direct init
-        return AVSpeechSynthesisVoice(language: languageCode)
+        let voice = AVSpeechSynthesisVoice(language: languageCode)
+        
+        // If voice is still nil (language not supported), log and return nil
+        if voice == nil {
+            print("⚠️ No voice available for language code: \(languageCode)")
+            print("📋 Available languages: \(Set(allVoices.map { $0.language }).sorted())")
+        }
+        
+        return voice
     }
 
     /// Return available voices matching (optionally) a language prefix.

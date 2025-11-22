@@ -12,7 +12,7 @@ struct LanguageView: View {
     @Binding var selectedLanguage: String
     @State private var tempSelectedLanguage: String
     
-    private let languages = UserSettings.shared.availableLanguages
+    private let languages = UserSettings.shared.availableLanguages.sorted { $0.name < $1.name }
     
     init(selectedLanguage: Binding<String>) {
         self._selectedLanguage = selectedLanguage

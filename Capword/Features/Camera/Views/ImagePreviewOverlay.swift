@@ -230,7 +230,7 @@ struct ImagePreviewOverlay: View {
                 try WordStorage.shared.saveWord(
                     detectedText: detectedText,
                     translation: translatedText,
-                    targetLanguage: UserSettings.shared.selectedLanguage,
+                    targetLanguage: UserSettings.shared.getLanguageCode(),
                     image: stickerImage
                 )
                 print("✅ Word saved: \(detectedText) -> \(translatedText)")
@@ -251,8 +251,9 @@ struct ImagePreviewOverlay: View {
         
         do {
             let targetLanguage = UserSettings.shared.getLanguageCode()
-            let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithModel(
-                named: "MobileNetV2FP16",
+            
+            // Use Google Cloud Vision API for object detection
+            let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithGoogleVision(
                 image: image,
                 targetLanguageCodes: [targetLanguage]
             )
