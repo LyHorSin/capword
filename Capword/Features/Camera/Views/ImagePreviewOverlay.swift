@@ -203,7 +203,7 @@ struct ImagePreviewOverlay: View {
         do {
             let targetLanguage = "zh" // Spanish, French, Japanese, Chinese
             let results = try await ObjectDetectorAndTranslator.detectAndTranslateWithModel(
-                named: "MobileNetV2",
+                named: "MobileNetV2FP16",
                 image: image,
                 targetLanguageCodes: [targetLanguage]
             )
